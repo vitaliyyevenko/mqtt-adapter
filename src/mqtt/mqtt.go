@@ -1,65 +1,69 @@
 package mqtt
 
 import (
+	"io"
 	"fmt"
-	"encoding/json"
 
 	"github.com/eclipse/paho.mqtt.golang"
+	"mqtt-adapter/src/config"
 )
 
-type mqttClient struct {
-	id     string
-	topic  string
-	client mqtt.Client
+const qos = 0
+
+// Subscriber is an interface that describes behavior of a subscriber to MQTT
+type Subscriber interface {
+	Subscribe(topic string, writer io.Writer)
+	SubscribeBridge(topic string, msgChan chan<- string)
+	Disconnect()
 }
 
-type message struct {
-	Topic   string  `json:"topic,omitempty"`
-	Name    string  `json:"service_name,omitempty"`
-	UUID    string  `json:"service_uuid,omitempty"`
-	Host    string  `json:"service_host,omitempty"`
-	Payload payLoad `json:"payload,omitempty"`
+// Publisher is an interface that describes behavior of a publisher to MQTT
+type Publisher interface {
+	Publish(msg string) error
+	Disconnect()
 }
 
-type payLoad struct {
-	LogEntry logEntry `json:"log_entry,omitempty"`
+// Message represent model of MQTT message
+type Message struct {
+	Topic string `json:"topic"`
 }
 
-type logEntry struct {
-	Level   string `json:"log_level,omitempty"`
-	Message string `json:"log_message,omitempty"`
-}
-
-func (m message) String() string {
-	p, _ := json.Marshal(&m)
-	return string(p)
-}
-
-/*func NewMQTTClient(level, username, pass string) mqtt.Client {
-	c := new(mqttClient)
-	id := fmt.Sprintf("%s_%s_%s_listener", Config.Name, Config.Host, Config.UUID)
-	c.topic = fmt.Sprintf("%s/log/%s/%s/%s", Config.NamespacePublisher, Config.Name, Config.UUID, level)
-	options := mqtt.NewClientOptions()
-	options.AddBroker(Config.MQTTListenerURL)
-	options.SetClientID(id)
-	// options.SetWill()
-
-	c.client = mqtt.NewClient(options)
-	return c.client
-}*/
-
-func main() {
-	log := logEntry{
-		Level:   "someLevel",
-		Message: "someMessage",
+func newClient(broker, clientID string, credo config.Credentials) (mqtt.Client, error) {
+	opts := mqtt.NewClientOptions()
+	opts.AddBroker(broker)
+	opts.SetCleanSession(true)
+	opts.SetClientID(clientID)
+	if credo.UserName != "" || credo.Password != "" {
+		opts.SetUsername(credo.UserName)
+		opts.SetPassword(credo.Password)
 	}
 
-	m := message{
-		UUID:    "someUUID",
-		Name:    "someName",
-		Host:    "someHost",
-		Topic:   "someTopic",
-		Payload: payLoad{log},
+	client := mqtt.NewClient(opts)
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		return nil, fmt.Errorf("cannot connect to MQTT broker (%s): %v", broker, token.Error())
 	}
-	fmt.Println(m)
+	return client, nil
+}
+
+// NewMQTTClients creates and initializes publisher and listener
+func NewMQTTClients(conf *config.Configuration) (pub Publisher, sub Subscriber, err error) {
+	var clS, clP mqtt.Client
+	listClientID := fmt.Sprintf("%s_%s_%s_lis", conf.Name, conf.Host, conf.UUID)
+	clS, err = newClient(conf.MQTTListenerURL, listClientID, conf.ListCredo)
+	if err != nil {
+		return nil, nil, err
+	}
+	if conf.Same {
+		sub = &subscriber{client: clS}
+		pub = &publisher{client: clS}
+		return pub, sub, nil
+	}
+	pubClientID := fmt.Sprintf("%s_%s_%s_pub", conf.Name, conf.Host, conf.UUID)
+	clP, err = newClient(conf.MQTTPublisherURL, pubClientID, conf.PubCredo)
+	if err != nil {
+		return nil, nil, err
+	}
+	sub = &subscriber{client: clS}
+	pub = &publisher{client: clP}
+	return pub, sub, nil
 }

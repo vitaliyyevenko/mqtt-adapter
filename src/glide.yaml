@@ -1,0 +1,11 @@
+package: mqtt-adapter/src
+import:
+- package: github.com/satori/go.uuid
+  version: 36e9d2ebbde5e3f13ab2e25625fd453271d6522e
+- package: github.com/eclipse/paho.mqtt.golang
+  version: 88c4622b8e24c52f64a0caaa28e40b91629bb6e6
+- package: github.com/sirupsen/logrus
+  version: 78fa2915c1fa231f62e0438da493688c21ca678e
+- package: golang.org/x/crypto/ssh/terminal
+- package: github.com/surgemq/surgemq
+
